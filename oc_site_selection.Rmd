@@ -1,0 +1,501 @@
+---
+title: "Oak Creek"
+author: "Zac Driscoll"
+date: "8/27/2021"
+output: 
+  html_document:
+    code_folding: hide
+---
+## {.tabset}
+
+### Cluster Analysis
+
+MDS plot.  10 years of data. Parameters include: Sonde parameters, TOC, NH3,
+and NO3, TP.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(mmsd.wq)
+library(ggdendro)
+library(DT)
+
+mds_params <- 
+  param_lookup_table %>%
+  filter((grepl("wq_sonde",param_lookup_table$parameter)| op_sid %in%
+           c(877,196,192,189) )& op_sid != 180) %>% #TOC, NH3, NO3, TP
+  pull(op_sid)
+
+oc_sites <-
+  mmsd_wq_sites %>%
+  filter(water_body == "Oak Creek") %>%
+  pull(sitecode)
+
+oc_data <- 
+  get_survey_data(sitecode = oc_sites,
+                  start_date = "2010-01-01",
+                  end_date = "2020-12-31")
+
+oc_data <- oc_data %>%
+  mutate(reading_num = if_else(op_sid %in% c(880,213),
+                               log10(reading_num), 
+                               reading_num))
+
+
+z_score_norm <- function(x) {
+  (x - mean(x)) / sd(x)
+  
+}
+  
+
+min_max_norm <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+
+calc_t_test <- function(site1,site2,param){
+  
+  oc_data_t <- oc_data
+  
+  if (param %in% c(877, 196, 192, 189, 183, 179)) {
+    oc_data_t <- oc_data_t %>%
+      mutate(reading_num = log(reading_num))
+  }
+  if(param %in% c(880,213)){
+    oc_data_t <- oc_data_t %>%
+      mutate(reading_num = log10(reading_num))
+  }
+  
+  oc_data_t <- 
+    oc_data_t %>%
+    filter(sitecode %in% c(as.character(site1),as.character(site2)) &
+             op_sid == param) %>% 
+    select(site_code,collection_date,reading_num) %>% 
+    pivot_wider(names_from = "site_code", values_from = "reading_num")
+ 
+
+  
+  z <- t.test(pull(oc_data_t[,2])
+         ,pull(oc_data_t[,3]),
+         paired = TRUE,
+         alternative = "two.sided")
+  
+  round(z$p.value,digits = 2)
+
+}
+
+make_table <- function(op_sid){
+  results <- all_t_tests %>%
+    filter(ops == op_sid) %>%
+    select(-ops) %>%
+    pivot_wider(names_from = site_2,values_from = p_value) %>%
+      arrange(site_1) %>%
+    rename(site = site_1)
+  
+  results[1,2:8] <- NA
+  results[2,3:8] <- NA
+  results[3,4:8] <- NA
+  results[4,5:8] <- NA
+  results[5,6:8] <- NA
+  results[6,7:8] <- NA
+  results[7,8:8] <- NA
+  
+  results
+
+  }
+
+
+all_t_tests <- expand.grid(oc_sites,oc_sites,c(mds_params,213,880,75))
+
+all_t_tests <- all_t_tests %>%
+  filter(Var1 != Var2)
+
+all_t_tests <-
+  all_t_tests %>%
+  rename(site_1 = 1,
+         site_2 = 2,
+         ops = 3) %>%
+  mutate(p_value =
+           pmap_dbl(
+             .l = list(..1 = site_1, ..2 = site_2, ..3 = ops),
+             .f = 
+               possibly(
+               ~ calc_t_test(
+               site1 = ..1,
+               site2 = ..2,
+               param = ..3
+             ),
+             otherwise = NA
+           )
+  )
+  )
+
+```
+
+
+```{r echo = FALSE}
+
+oc_data_flipped <- oc_data %>%
+  filter(op_sid %in% mds_params) %>%
+  group_by(parameter) %>%
+  mutate(reading_num = min_max_norm(reading_num)) %>%
+  ungroup() %>%
+  mutate(date_parameter = paste(parameter, collection_date, sep = "_")) %>%
+  select(date_parameter,
+         reading_raw,
+         sitecode) %>%
+  pivot_wider(names_from = "date_parameter",
+              values_from = "reading_raw") %>%
+  select_if(~ !any(is.na(.)))
+
+oc_dist <- oc_data_flipped %>%
+  column_to_rownames("sitecode") %>%
+  dist() 
+
+oc_nmds <- 
+  oc_dist %>% 
+  cmdscale() %>%
+  as.data.frame() %>%
+  rownames_to_column("sitecode")
+
+oc_nmds %>%
+  ggplot(aes(x = V1, y = V2)) +
+  ggrepel::geom_text_repel(aes(label = sitecode),
+                           max.overlaps = Inf,
+                           size = 6) +
+  geom_point(size = 4) +
+  theme(legend.position = "right",
+        legend.text=element_text(size=12),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+
+```
+
+Dendrograph <br>
+
+```{r, echo = FALSE}
+
+dendro <- 
+  oc_dist%>%
+  hclust("ward.D")%>%
+  as.dendrogram()%>%
+  dendro_data()
+
+labs <- ggdendro::label(dendro)[,3]
+
+
+ggplot()+
+  geom_segment(data = ggdendro::segment(dendro),
+               aes(x=x, y=y, xend=xend, yend=yend))+
+  geom_text(data=label(dendro),
+            aes(label=labs,
+                x=x, y=0),
+            size = 6,
+            hjust = 1.25,
+            angle = 90)+
+  scale_y_continuous(expand = c(0.5, 0))+
+  guides(fill=guide_legend(title="OC Site"))+
+  theme(legend.position = c(0.8, 0.9),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+```
+
+
+### Boxplots
+<h4> Site Comparison </h4><br>
+```{r, echo = FALSE}
+
+oc_data_shared <- crosstalk::SharedData$new(oc_data)
+
+
+  crosstalk::filter_select(
+    "oc_param",
+    "Select a Parameter:",
+    multiple = FALSE,
+    sharedData = oc_data_shared,
+    ~ parameter
+  )
+  
+  plotly::plot_ly(
+  data = oc_data_shared,
+  y = ~ reading_num,
+  x = ~ site_code,
+  type = 'box'
+)
+
+
+```
+<br>
+<h4> Seasonal Trends  </h4><br>
+
+
+
+```{r,fig.width = 10, warning=FALSE}
+
+oc_seasonal <- crosstalk::SharedData$new(oc_data)
+
+crosstalk::bscols(
+  crosstalk::filter_select(
+    "oc_site",
+    "Select a Site:",
+    multiple = FALSE,
+    sharedData = oc_seasonal,
+    ~ sitecode
+  ),
+  crosstalk::filter_select(
+    "oc_seasonal_param",
+    "Select a Parameter:",
+    multiple = FALSE,
+    sharedData = oc_seasonal,
+    ~ parameter
+  )
+)
+plotly::plot_ly(
+  data = oc_seasonal,
+  y = ~ reading_num,
+  x = ~ month,
+  type = 'box'
+)
+
+```
+
+### Timeseries
+
+```{r,fig.width = 10, warning=FALSE}
+oc_data2 <- oc_data %>% arrange(collection_date)
+oc_seasonal2 <- crosstalk::SharedData$new(oc_data2)
+
+crosstalk::bscols(
+  crosstalk::filter_select(
+    "oc_site2",
+    "Select Sites:",
+    multiple = TRUE,
+    sharedData = oc_seasonal2,
+    ~ sitecode
+  ),
+  crosstalk::filter_select(
+    "oc_seasonal_param2",
+    "Select a Parameter:",
+    multiple = FALSE,
+    sharedData = oc_seasonal2,
+    ~ parameter
+  ),
+    crosstalk::filter_select(
+    "oc_year",
+    "Select a Year:",
+    multiple = FALSE,
+    sharedData = oc_seasonal2,
+    ~ year
+  )
+)
+plotly::plot_ly(
+  data = oc_seasonal2,
+  y = ~ reading_num,
+  x = ~ month,
+  type = 'scatter',
+  mode = 'lines+markers',
+  color = ~sitecode
+)
+
+```
+
+### T-Tests 
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-178"> pH </button> 
+<div id="btn-ops-178" class="collapse"> 
+```{r}
+
+z <- make_table(178)
+
+DT::datatable(make_table(178)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-179"> Sp. Cond </button> 
+<div id="btn-ops-179" class="collapse"> 
+```{r}
+
+z <- make_table(179)
+
+DT::datatable(make_table(179)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-181"> Temperature </button> 
+<div id="btn-ops-181" class="collapse"> 
+```{r}
+
+z <- make_table(181)
+
+DT::datatable(make_table(181)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-182"> DO </button> 
+<div id="btn-ops-182" class="collapse"> 
+```{r}
+
+z <- make_table(182)
+
+DT::datatable(make_table(182)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-183"> Turbidity </button> 
+<div id="btn-ops-183" class="collapse"> 
+```{r}
+
+z <- make_table(183)
+
+DT::datatable(make_table(183)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-189"> NO5 </button> 
+<div id="btn-ops-189" class="collapse"> 
+```{r}
+
+z <- make_table(189)
+
+DT::datatable(make_table(189)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-192"> NH3 </button> 
+<div id="btn-ops-192" class="collapse"> 
+```{r}
+
+z <- make_table(192)
+
+DT::datatable(make_table(192)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-196"> TP </button> 
+<div id="btn-ops-196" class="collapse"> 
+```{r}
+
+z <- make_table(196)
+
+DT::datatable(make_table(196)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-877"> TC </button> 
+<div id="btn-ops-877" class="collapse"> 
+```{r}
+
+z <- make_table(877)
+
+DT::datatable(make_table(877)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-213"> Fecal </button> 
+<div id="btn-ops-213" class="collapse"> 
+```{r}
+
+z <- make_table(213)
+
+DT::datatable(make_table(213)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-75"> TSS </button> 
+<div id="btn-ops-75" class="collapse"> 
+```{r}
+
+z <- make_table(75)
+
+DT::datatable(make_table(75)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
+
