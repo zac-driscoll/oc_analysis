@@ -1,0 +1,9 @@
+name: "oc_site_selection"
+output_dir: "."
+navbar:
+  title: "Oak Creek Site Selection"
+  left:
+    - text: "Home"
+      href: index.html
+    - text: "Markdown"
+      href: oc_site_selection.html
