@@ -5,5 +5,4 @@ navbar:
   left:
     - text: "Home"
       href: index.html
-    - text: "Analysis"
-      href: oc_site_selection.html
+
