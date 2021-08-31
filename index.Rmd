@@ -8,10 +8,6 @@ output:
 ---
 ## {.tabset}
 
-### Cluster Analysis
-
-MDS plot.  10 years of data. Parameters include: Sonde parameters, TOC, NH3,
-and NO3, TP.
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -19,12 +15,16 @@ library(tidyverse)
 library(mmsd.wq)
 library(ggdendro)
 library(DT)
+library(sf)
+library(wdnr.gis)
+library(leaflet)
 
-mds_params <- 
+mds_params <-
   param_lookup_table %>%
-  filter((grepl("wq_sonde",param_lookup_table$parameter)| op_sid %in%
-           c(877,196,192,189))& op_sid != 180) %>% #TOC, NH3, NO3, TP
+  filter(op_sid %in%
+           c(877, 196, 192, 189, 75, 213, 183, 181)) %>% #TOC, NH3, NO3, TP, TSS
   pull(op_sid)
+
 
 oc_sites <-
   mmsd_wq_sites %>%
@@ -134,105 +134,49 @@ all_t_tests <-
 
 ### Site Map
 
-```{r, echo = FALSE}
-
-mmsd.wq::map_wq_sites(waterbodies = "Oak Creek")
+```{r, echo = FALSE,fig.height = 7, warning = FALSE, message = FALSE}
 
 
-```
+oak_creek <-get_hydro_layer(watershed_code = "040400020102")
 
-```{r echo = FALSE}
-
-oc_data_flipped <- oc_data %>%
-  filter(op_sid %in% mds_params) %>%
-  group_by(parameter) %>%
-  mutate(reading_num = min_max_norm(reading_num)) %>%
-  ungroup() %>%
-  mutate(date_parameter = paste(parameter, collection_date, sep = "_")) %>%
-  select(date_parameter,
-         reading_raw,
-         sitecode) %>%
-  pivot_wider(names_from = "date_parameter",
-              values_from = "reading_raw") %>%
-  select_if(~ !any(is.na(.)))
-
-oc_dist <- oc_data_flipped %>%
-  column_to_rownames("sitecode") %>%
-  dist() 
-
-oc_nmds <- 
-  oc_dist %>% 
-  cmdscale() %>%
-  as.data.frame() %>%
-  rownames_to_column("sitecode")
-
-oc_nmds %>%
-  ggplot(aes(x = V1, y = V2)) +
-  ggrepel::geom_text_repel(aes(label = sitecode),
-                           max.overlaps = Inf,
-                           size = 6) +
-  geom_point(size = 4) +
-  theme(legend.position = "right",
-        legend.text=element_text(size=12),
-        axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank(),
-        axis.title.y=element_blank(),
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank())
+oc_sites <- 
+  mmsd.wq::mmsd_wq_sites %>%
+  filter(water_body == "Oak Creek") %>%
+  st_as_sf(coords = c("longitude","latitude"))
+  
+leaflet() %>%
+  addPolylines(data = oak_creek, color = "black") %>%
+  addPolylines(data = filter(oak_creek, RIVER_SYS_WBIC == 14500),
+               color = "blue") %>%
+  addProviderTiles(provider = providers$Esri.WorldImagery) %>%
+  addCircleMarkers(data = oc_sites, color = "red", fillOpacity =  1,
+                   label = ~ paste("Site Code:", sitecode))
 
 
 ```
-
-Dendrograph <br>
-
-```{r, echo = FALSE}
-
-dendro <- 
-  oc_dist%>%
-  hclust("ward.D")%>%
-  as.dendrogram()%>%
-  dendro_data()
-
-labs <- ggdendro::label(dendro)[,3]
-
-
-ggplot()+
-  geom_segment(data = ggdendro::segment(dendro),
-               aes(x=x, y=y, xend=xend, yend=yend))+
-  geom_text(data=label(dendro),
-            aes(label=labs,
-                x=x, y=0),
-            size = 6,
-            hjust = 1.25,
-            angle = 90)+
-  scale_y_continuous(expand = c(0.5, 0))+
-  guides(fill=guide_legend(title="OC Site"))+
-  theme(legend.position = c(0.8, 0.9),
-        axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank(),
-        axis.title.y=element_blank(),
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank())
-
-```
-
 
 ### Boxplots
 <h4> Site Comparison </h4><br>
-```{r, echo = FALSE}
+Select a parameter and sites to see a boxplot of the data. <br>
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
 
 oc_data_shared <- crosstalk::SharedData$new(oc_data)
 
-
+crosstalk::bscols(
   crosstalk::filter_select(
     "oc_param",
     "Select a Parameter:",
     multiple = FALSE,
     sharedData = oc_data_shared,
     ~ parameter
-  )
+  ),
+        crosstalk::filter_select(
+    "oc_site_compare",
+    "Select Sites:",
+    multiple = TRUE,
+    sharedData = oc_data_shared,
+    ~ site_code)
+)
   
   plotly::plot_ly(
   data = oc_data_shared,
@@ -241,13 +185,10 @@ oc_data_shared <- crosstalk::SharedData$new(oc_data)
   type = 'box'
 )
 
-
 ```
 <br>
 <h4> Seasonal Trends  </h4><br>
-
-
-
+Select a site and parameter to see seasonal trends in the data <br>
 ```{r,fig.width = 10, warning=FALSE}
 
 oc_seasonal <- crosstalk::SharedData$new(oc_data)
@@ -278,7 +219,8 @@ plotly::plot_ly(
 ```
 
 ### Timeseries
-
+<h4> Time Series </h4><br>
+Select sites, a parameter, and a year to compare time series. <br>
 ```{r,fig.width = 10, warning=FALSE}
 oc_data2 <- oc_data %>% arrange(collection_date)
 oc_seasonal2 <- crosstalk::SharedData$new(oc_data2)
@@ -318,6 +260,13 @@ plotly::plot_ly(
 ```
 
 ### T-Tests 
+<h4> Paired T-Tests </h4> <br>
+Paired t-tests were performed between sites for several parameters. When
+necessary, data were log transformed to meet the assumption of normality. Click
+a parameter name to see the results.  The number within each of the cells are the 
+p-values for the tests. Blue cells indicate that there is no significant difference
+between the two stations for the given parameter (p-value > 0.05). 
+
 <br>
 <button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-178"> pH </button> 
 <div id="btn-ops-178" class="collapse"> 
@@ -506,4 +455,97 @@ DT::datatable(make_table(75)) %>%
 </div>
 <br>
 <br>
+
+### Cluster Analysis
+
+<h3> Description </h3>
+Multidimensional scaling was performed to identify clusters within the data.
+Parameters used within the analysis include: NH3, TC, TP, NH3, NO5, TS, Fecal,
+Temp, and Turbidity.  Data were scaled by parameter groups using z scale 
+normalization. When applicable, data were logged to normalize the data. The median
+value was used for each site-parameter combo. <br>
+
+
+```{r, echo = FALSE,warning = FALSE, message = FALSE}
+
+oc_dist3 <- 
+  oc_data %>%
+  filter(op_sid %in% mds_params) %>%
+  mutate(reading_num = case_when(
+    op_sid %in% c(877,196,192,189,183,179) ~log(reading_num), 
+    op_sid == 213 ~ log10(reading_num),
+    TRUE ~ reading_num)) %>%
+  group_by(parameter) %>% 
+  mutate(reading_num = z_score_norm(reading_num)) %>%
+  ungroup() %>%
+  group_by(parameter, sitecode,month) %>%
+  summarise(reading_num = median(reading_num)) %>%
+  ungroup() %>%
+  mutate(site_month = paste(sitecode,month,sep = "_")) %>%
+  select(-month,-sitecode) %>%
+  pivot_wider(names_from = "parameter",
+              values_from = "reading_num") %>%
+  select_if(~ !any(is.na(.))) %>%
+  column_to_rownames("site_month") %>%
+  dist()
+  
+  oc_mds3 <- 
+  oc_dist3 %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  rownames_to_column("site_month") %>%
+  mutate(sitecode = sub("_.*","",site_month),
+         month = sub(".*_","",site_month),
+         season = case_when(month %in% c("Dec","Jan","Feb","Mar","Nov") ~ "Winter",
+                             month %in% c("Apr","May") ~ "Spring",
+                             month %in% c("Jun","Jul","Aug") ~ "Summer",
+                             month %in% c("Sep","Oct") ~ "Fall"))
+
+
+
+```
+<br>
+<h3> MDS Plot </h3>
+Each point in the below plot represents a site-month (e.g. OC-01-MAY).  Points are colored 
+by sitecode. No clear trend is observable. <br>
+```{r, echo = FALSE, fig.width = 11, fig.height = 7}
+p <- oc_mds3 %>%
+  ggplot(aes(x = V1, y = V2, color = sitecode, 
+             text = sitecode, label = month)) +
+  geom_point(size = 4) +
+  theme(legend.position = "right",
+        legend.text=element_text(size=12),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+plotly::ggplotly(p)
+
+```
+
+<h3> MDS Plot </h3>
+Each point in the below plot represents a site-month (e.g. OC-01-MAY).  Points are colored 
+by season. A very strong seasonal trend is observable. <br>
+
+```{r, echo = FALSE, fig.width = 11, fig.height = 7}
+
+p <- oc_mds3 %>%
+  ggplot(aes(x = V1, y = V2, color = season, 
+             text = sitecode, label = month)) +
+  geom_point(size = 4) +
+  theme(legend.position = "right",
+        legend.text=element_text(size=12),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+plotly::ggplotly(p)
+
+
+```
 
