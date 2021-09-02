@@ -1,7 +1,7 @@
 ---
 title: "Oak Creek Site Selection"
-author: "Zac Driscoll"
-date: "8/27/2021"
+author: "Freshwater Resource Monitoring"
+date: "9/2/2021"
 output: 
   html_document:
     code_folding: hide
@@ -22,7 +22,7 @@ library(leaflet)
 mds_params <-
   param_lookup_table %>%
   filter(op_sid %in%
-           c(877, 196, 192, 189, 75, 213, 183, 181)) %>% #TOC, NH3, NO3, TP, TSS
+           c(877, 196, 192, 189, 75, 213, 183, 181,198)) %>% #TOC, NH3, NO3, TP, TSS
   pull(op_sid)
 
 
@@ -57,7 +57,7 @@ calc_t_test <- function(site1,site2,param){
   
   oc_data_t <- oc_data
   
-  if (param %in% c(877, 196, 192, 189, 183, 179)) {
+  if (param %in% c(877, 196, 192, 189, 183, 179,198)) {
     oc_data_t <- oc_data_t %>%
       mutate(reading_num = log(reading_num))
   }
@@ -104,8 +104,9 @@ make_table <- function(op_sid){
 
   }
 
-
-all_t_tests <- expand.grid(oc_sites,oc_sites,c(mds_params,213,880,75))
+all_t_tests <-
+  expand.grid(oc_sites, oc_sites, c(mds_params, 213, 880, 178, 182, 179, 
+                                    75))
 
 all_t_tests <- all_t_tests %>%
   filter(Var1 != Var2)
@@ -130,6 +131,9 @@ all_t_tests <-
   )
   )
 
+oak_creek <-get_hydro_layer(watershed_code = "040400020102")
+oak_wshed <- get_watershed_layer(watershed_code = "040400020102")
+
 ```
 
 ### Site Map
@@ -137,14 +141,15 @@ all_t_tests <-
 ```{r, echo = FALSE,fig.height = 7, warning = FALSE, message = FALSE}
 
 
-oak_creek <-get_hydro_layer(watershed_code = "040400020102")
-
 oc_sites <- 
   mmsd.wq::mmsd_wq_sites %>%
   filter(water_body == "Oak Creek") %>%
   st_as_sf(coords = c("longitude","latitude"))
   
 leaflet() %>%
+  addPolygons(data = oak_wshed, color = "green",
+              opacity = 0.5, 
+              fillOpacity = 0.1) %>% 
   addPolylines(data = oak_creek, color = "black") %>%
   addPolylines(data = filter(oak_creek, RIVER_SYS_WBIC == 14500),
                color = "blue") %>%
@@ -319,6 +324,23 @@ DT::datatable(make_table(181)) %>%
 </div>
 <br>
 <br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-198"> Chloride </button> 
+<div id="btn-ops-198" class="collapse"> 
+```{r}
+
+z <- make_table(198)
+
+DT::datatable(make_table(198)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
 <button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-182"> DO </button> 
 <div id="btn-ops-182" class="collapse"> 
 ```{r}
@@ -461,7 +483,7 @@ DT::datatable(make_table(75)) %>%
 <h3> Description </h3>
 Multidimensional scaling was performed to identify clusters within the data.
 Parameters used within the analysis include: NH3, TC, TP, NH3, NO5, TS, Fecal,
-Temp, and Turbidity.  Data were scaled by parameter groups using z scale 
+Temp, Chloride, and Turbidity.  Data were scaled by parameter groups using z scale 
 normalization. When applicable, data were logged to normalize the data. The median
 value was used for each site-parameter combo. <br>
 
@@ -525,6 +547,7 @@ plotly::ggplotly(p)
 
 ```
 
+
 <h3> MDS Plot </h3>
 Each point in the below plot represents a site-month (e.g. OC-01-MAY).  Points are colored 
 by season. A very strong seasonal trend is observable. <br>
@@ -533,6 +556,30 @@ by season. A very strong seasonal trend is observable. <br>
 
 p <- oc_mds3 %>%
   ggplot(aes(x = V1, y = V2, color = season, 
+             text = sitecode, label = month)) +
+  geom_point(size = 4) +
+  theme(legend.position = "right",
+        legend.text=element_text(size=12),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+plotly::ggplotly(p)
+
+
+```
+
+
+<h3> MDS Plot </h3>
+Points are colored by month <br>
+
+```{r, echo = FALSE, fig.width = 11, fig.height = 7}
+
+p <- oc_mds3 %>%
+  ggplot(aes(x = V1, y = V2, color = month, 
              text = sitecode, label = month)) +
   geom_point(size = 4) +
   theme(legend.position = "right",
