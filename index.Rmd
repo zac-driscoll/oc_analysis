@@ -1,6 +1,6 @@
 ---
 title: "Oak Creek Site Selection"
-author: "Freshwater Resource Monitoring"
+author: "Zac Driscoll"
 date: "9/2/2021"
 output: 
   html_document:
@@ -105,8 +105,7 @@ make_table <- function(op_sid){
   }
 
 all_t_tests <-
-  expand.grid(oc_sites, oc_sites, c(mds_params, 213, 880, 178, 182, 179, 
-                                    75))
+  expand.grid(oc_sites, oc_sites, c(mds_params, 880, 178, 182, 179))
 
 all_t_tests <- all_t_tests %>%
   filter(Var1 != Var2)
