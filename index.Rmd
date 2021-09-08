@@ -493,6 +493,38 @@ DT::datatable(make_table(191)) %>%
 </div>
 <br>
 <br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-sum"> Summary </button> 
+<div id="btn-sum" class="collapse"> 
+```{r}
+
+sum_t <- all_t_tests %>%
+  rename(op_sid = ops) %>%
+  left_join(param_lookup_table %>%
+              select(op_sid,label_name)) %>%
+  filter(site_1 %in% c("OC-03","OC-04","OC-06","OC-07") | 
+           site_2 %in% c("OC-03","OC-04","OC-06","OC-07")) %>%
+  filter(op_sid != 880) %>%
+  mutate(different = if_else(p_value > 0.05, "yes","no")) %>%
+  select(-op_sid,-different) %>%
+  pivot_wider(names_from = c(site_1,site_2), values_from = p_value) %>%
+  select(label_name, "OC-06_OC-07","OC-03_OC-04") 
+    
+DT::datatable(sum_t,
+              options = list(pageLength = 15)) %>%
+  DT::formatStyle(
+    colnames(sum_t[2:3]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+
+
+
+```
+</div>
+<br>
+<br>
+
 
 ### Cluster Analysis
 
