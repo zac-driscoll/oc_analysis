@@ -22,7 +22,7 @@ library(leaflet)
 mds_params <-
   param_lookup_table %>%
   filter(op_sid %in%
-           c(877, 196, 192, 189, 75, 213, 183, 181,198)) %>% #TOC, NH3, NO3, TP, TSS
+           c(877, 196, 192, 189, 75, 213, 181,198,191)) %>% #TC, TP, NH3,  NO5,  TSS, Fecal, Temp,Chloride,TKN
   pull(op_sid)
 
 
@@ -105,7 +105,7 @@ make_table <- function(op_sid){
   }
 
 all_t_tests <-
-  expand.grid(oc_sites, oc_sites, c(mds_params, 880, 178, 182, 179))
+  expand.grid(oc_sites, oc_sites, c(mds_params, 880, 178, 182, 179,183))
 
 all_t_tests <- all_t_tests %>%
   filter(Var1 != Var2)
@@ -476,16 +476,32 @@ DT::datatable(make_table(75)) %>%
 </div>
 <br>
 <br>
+<button class="btn btn-primary" data-toggle="collapse" data-target="#btn-ops-191"> TKN </button> 
+<div id="btn-ops-191" class="collapse"> 
+```{r}
+
+z <- make_table(191)
+
+DT::datatable(make_table(191)) %>% 
+  DT::formatStyle(
+    colnames(z[2:8]),
+    color = styleInterval(c(3.4, 3.8), c('white', 'blue', 'red')),
+    backgroundColor = styleInterval(c(0.05), c('coral','dodgerblue'))
+  )
+
+```
+</div>
+<br>
+<br>
 
 ### Cluster Analysis
 
 <h3> Description </h3>
 Multidimensional scaling was performed to identify clusters within the data.
-Parameters used within the analysis include: NH3, TC, TP, NH3, NO5, TS, Fecal,
-Temp, Chloride, and Turbidity.  Data were scaled by parameter groups using z scale 
+Parameters used within the analysis include: TC, TP, NH3,  NO5,  TSS, Fecal, 
+Temperature, Cl ,TKN.  Data were scaled by parameter groups using z scale 
 normalization. When applicable, data were logged to normalize the data. The median
 value was used for each site-parameter combo. <br>
-
 
 ```{r, echo = FALSE,warning = FALSE, message = FALSE}
 
